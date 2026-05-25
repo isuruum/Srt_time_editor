@@ -42,6 +42,20 @@ class SrtEditorApp:
         self.root.geometry("520x560")
         self.root.resizable(False, False)
         
+        # --- Variables for Settings ---
+        self.dark_mode_var = tk.BooleanVar(value=False)
+        self.auto_clear_var = tk.BooleanVar(value=False)
+        self.auto_close_var = tk.BooleanVar(value=False)
+        
+        # --- Create Menu Bar ---
+        self.menubar = tk.Menu(root)
+        self.settings_menu = tk.Menu(self.menubar, tearoff=0)
+        self.settings_menu.add_checkbutton(label="Enable Dark Mode", variable=self.dark_mode_var, command=self.toggle_dark_mode)
+        self.settings_menu.add_checkbutton(label="Auto Clear on Success", variable=self.auto_clear_var)
+        self.settings_menu.add_checkbutton(label="Auto Close on Success", variable=self.auto_close_var)
+        self.menubar.add_cascade(label="Settings", menu=self.settings_menu)
+        self.root.config(menu=self.menubar)
+        
         # Enable drag and drop on the whole window
         self.root.drop_target_register(DND_FILES)
         self.root.dnd_bind('<<Drop>>', self.on_drop)
@@ -230,7 +244,7 @@ class SrtEditorApp:
         new_time_str = self.new_time_var.get()
         
         if not old_time_str or not new_time_str:
-            messagebox.showerror("Error", "Please provide both Original and Target times.")
+            messagebox.showerror("Error", "Please provide Target times.")
             return
 
         try:
@@ -270,8 +284,50 @@ class SrtEditorApp:
 
             self.status_var.set(f"Success! Saved: {os.path.basename(output_file)}")
             messagebox.showinfo("Success", f"Subtitles adjusted successfully!\nComputed Offset Applied: {offset.total_seconds():.3f} seconds.")
+            
+            if self.auto_clear_var.get():
+                self.clear_data()
+            if self.auto_close_var.get():
+                self.root.destroy()
         except Exception as e:
             messagebox.showerror("Processing Error", f"An error occurred reading or writing the file:\n{str(e)}")
+
+    def toggle_dark_mode(self):
+        is_dark = self.dark_mode_var.get()
+        bg_color = "#2b2b2b" if is_dark else "SystemButtonFace"
+        fg_color = "#ffffff" if is_dark else "#000000"
+        entry_bg = "#3c3c3c" if is_dark else "#ffffff"
+        entry_fg = "#ffffff" if is_dark else "#000000"
+        readonly_bg = "#4d4d4d" if is_dark else "SystemButtonFace"
+        
+        # Function to recursively apply colors
+        def apply_colors(widget):
+            widget_type = widget.winfo_class()
+            
+            try:
+                # Basic bg/fg classes
+                if widget_type in ('Frame', 'Tk', 'Toplevel'):
+                    widget.configure(bg=bg_color)
+                elif widget_type in ('Label', 'Radiobutton', 'Checkbutton'):
+                    widget.configure(bg=bg_color, fg=fg_color)
+                    # handle specific Radiobutton tweaks if needed
+                    if widget_type in ('Radiobutton', 'Checkbutton'):
+                        widget.configure(selectcolor=entry_bg)
+                elif widget_type == 'Entry':
+                    widget.configure(bg=entry_bg, fg=entry_fg, insertbackground=entry_fg, readonlybackground=readonly_bg)
+                elif widget_type == 'Listbox':
+                    widget.configure(bg=entry_bg, fg=entry_fg, selectbackground="#569CD6" if is_dark else "#0078D7", selectforeground="#ffffff")
+                elif widget_type == 'Button':
+                    # Leave colored buttons (like apply/clear) alone if they have custom backgrounds
+                    if widget.cget("bg") not in ("#4CAF50", "#f44336"):
+                        widget.configure(bg=entry_bg, fg=entry_fg)
+            except tk.TclError:
+                pass
+                    
+            for child in widget.winfo_children():
+                apply_colors(child)
+                
+        apply_colors(self.root)
 
 if __name__ == "__main__":
     root = TkinterDnD.Tk()
