@@ -39,7 +39,7 @@ class SrtEditorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("SRT Subtitle Time Editor")
-        self.root.geometry("520x560")
+        self.root.geometry("520x580")
         self.root.resizable(False, False)
         
         # --- Variables for Settings ---
@@ -110,6 +110,7 @@ class SrtEditorApp:
         tk.Label(root, text="4. Output Options:", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(20, 5))
         self.save_mode_var = tk.StringVar(value="new")
         tk.Radiobutton(root, text="Save as new file (appends '_adjusted')", variable=self.save_mode_var, value="new").pack(anchor="w", padx=20)
+        tk.Radiobutton(root, text="Save to custom location...", variable=self.save_mode_var, value="custom").pack(anchor="w", padx=20)
         tk.Radiobutton(root, text="Overwrite original file", variable=self.save_mode_var, value="overwrite", fg="red").pack(anchor="w", padx=20)
         
         # --- Action Buttons ---
@@ -258,6 +259,17 @@ class SrtEditorApp:
         if self.save_mode_var.get() == "new":
             base, ext = os.path.splitext(input_file)
             output_file = f"{base}_adjusted{ext}"
+        elif self.save_mode_var.get() == "custom":
+            base, ext = os.path.splitext(input_file)
+            suggested_filename = f"{os.path.basename(base)}_adjusted{ext}"
+            output_file = filedialog.asksaveasfilename(
+                title="Save Subtitle File As",
+                initialfile=suggested_filename,
+                defaultextension=".srt",
+                filetypes=[("SRT Subtitles", "*.srt"), ("All Files", "*.*")]
+            )
+            if not output_file:
+                return # User canceled the save dialog
         else:
             output_file = input_file
 
