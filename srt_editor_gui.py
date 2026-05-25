@@ -39,7 +39,7 @@ class SrtEditorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("SRT Subtitle Time Editor")
-        self.root.geometry("520x420")
+        self.root.geometry("520x560")
         self.root.resizable(False, False)
         
         # Enable drag and drop on the whole window
@@ -55,8 +55,25 @@ class SrtEditorApp:
         tk.Entry(file_frame, textvariable=self.file_path_var, state="readonly").pack(side="left", fill="x", expand=True, padx=(0, 10))
         tk.Button(file_frame, text="Browse", command=self.browse_file).pack(side="right")
         
+        # --- First Subtitles List ---
+        tk.Label(root, text="2. Select First Actual Dialogue (to ignore intro text):", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(15, 5))
+        
+        list_frame = tk.Frame(root)
+        list_frame.pack(fill="x", padx=20)
+        
+        self.sub_listbox = tk.Listbox(list_frame, height=5, selectmode=tk.SINGLE, font=("Consolas", 9))
+        self.sub_listbox.pack(side="left", fill="x", expand=True)
+        self.sub_listbox.bind('<<ListboxSelect>>', self.on_subtitle_select)
+        
+        scrollbar = tk.Scrollbar(list_frame, orient="vertical")
+        scrollbar.config(command=self.sub_listbox.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.sub_listbox.config(yscrollcommand=scrollbar.set)
+        
+        self.sub_data = [] # Will store tuples of (time_str, text)
+        
         # --- Time Adjustment ---
-        tk.Label(root, text="2. Calculate Shift Offset:", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(20, 5))
+        tk.Label(root, text="3. Calculate Shift Offset:", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(15, 5))
         
         time_frame = tk.Frame(root)
         time_frame.pack(fill="x", padx=20)
@@ -76,13 +93,17 @@ class SrtEditorApp:
         tk.Entry(time_frame, textvariable=self.new_time_var, width=22).grid(row=2, column=1, pady=5, padx=20, sticky="w")
         
         # --- Save Options ---
-        tk.Label(root, text="3. Output Options:", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(20, 5))
+        tk.Label(root, text="4. Output Options:", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(20, 5))
         self.save_mode_var = tk.StringVar(value="new")
         tk.Radiobutton(root, text="Save as new file (appends '_adjusted')", variable=self.save_mode_var, value="new").pack(anchor="w", padx=20)
         tk.Radiobutton(root, text="Overwrite original file", variable=self.save_mode_var, value="overwrite", fg="red").pack(anchor="w", padx=20)
         
-        # --- Process Button ---
-        tk.Button(root, text="Apply Subtitle Shift", command=self.process_file, bg="#4CAF50", fg="white", font=("Arial", 11, "bold"), width=30).pack(pady=20)
+        # --- Action Buttons ---
+        button_frame = tk.Frame(root)
+        button_frame.pack(pady=20)
+        
+        tk.Button(button_frame, text="Apply Subtitle Shift", command=self.process_file, bg="#4CAF50", fg="white", font=("Arial", 11, "bold"), width=25).pack(side="left", padx=10)
+        tk.Button(button_frame, text="Clear", command=self.clear_data, bg="#f44336", fg="white", font=("Arial", 11, "bold"), width=10).pack(side="left", padx=10)
         
         self.status_var = tk.StringVar(value="Ready")
         tk.Label(root, textvariable=self.status_var, fg="#666666").pack(side="bottom", pady=10)
@@ -105,18 +126,55 @@ class SrtEditorApp:
         if path:
             self.load_file(path)
             
+    def on_subtitle_select(self, event):
+        selection = self.sub_listbox.curselection()
+        if selection:
+            index = selection[0]
+            if index < len(self.sub_data):
+                time_val = self.sub_data[index][0]
+                self.old_time_entry.config(state="normal")
+                self.old_time_var.set(time_val)
+                self.old_time_entry.config(state="readonly")
+
     def load_file(self, path):
         self.file_path_var.set(path)
+        self.sub_listbox.delete(0, tk.END)
+        self.sub_data.clear()
+        
         try:
             with open(path, 'r', encoding='utf-8-sig') as f:
-                content = f.read(10000)
+                content = f.read()
                 
-            match = re.search(r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->", content)
-            if match:
-                # Need to change state to normal to set it, then back to readonly
-                self.old_time_entry.config(state="normal")
-                self.old_time_var.set(match.group(1))
-                self.old_time_entry.config(state="readonly")
+            # Regex to find all subtitles: index, timeframe, and text
+            # We look for: newline(s) or start of string block, number, timeframe, text
+            blocks = re.split(r'\n\s*\n', content.replace('\r', '').strip())
+            
+            for block in blocks[:15]: # Display up to 15 subtitles
+                lines = block.strip().split('\n')
+                if len(lines) >= 2:
+                    match = re.search(r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->", lines[1])
+                    if not match:
+                        # Sometimes index is missing, try first line
+                        match = re.search(r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->", lines[0])
+                        text_start = 1 if match else 2
+                    else:
+                        text_start = 2
+                        
+                    if match:
+                        time_str = match.group(1)
+                        # Join subtitle text lines, strip HTML tags if any, replace newlines with spaces
+                        text_str = " ".join(lines[text_start:]).strip()
+                        text_preview = re.sub(r'<[^>]*>', '', text_str)
+                        if len(text_preview) > 50:
+                            text_preview = text_preview[:47] + "..."
+                            
+                        self.sub_data.append((time_str, text_preview))
+                        self.sub_listbox.insert(tk.END, f"{time_str} | {text_preview}")
+
+            if self.sub_data:
+                # Select the first item by default
+                self.sub_listbox.select_set(0)
+                self.on_subtitle_select(None)
             else:
                 self.old_time_entry.config(state="normal")
                 self.old_time_var.set("")
@@ -149,6 +207,18 @@ class SrtEditorApp:
         hours, remainder = divmod(total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+    def clear_data(self):
+        self.file_path_var.set("")
+        self.sub_listbox.delete(0, tk.END)
+        self.sub_data.clear()
+        
+        self.old_time_entry.config(state="normal")
+        self.old_time_var.set("")
+        self.old_time_entry.config(state="readonly")
+        
+        self.new_time_var.set("")
+        self.status_var.set("Ready")
 
     def process_file(self):
         input_file = self.file_path_var.get()
