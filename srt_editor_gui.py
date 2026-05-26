@@ -39,13 +39,16 @@ class SrtEditorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("SRT Subtitle Time Editor")
-        self.root.geometry("520x580")
-        self.root.resizable(False, False)
+        self.root.geometry("600x850")
         
         # --- Variables for Settings ---
         self.dark_mode_var = tk.BooleanVar(value=False)
         self.auto_clear_var = tk.BooleanVar(value=False)
         self.auto_close_var = tk.BooleanVar(value=False)
+        self.has_sections_var = tk.BooleanVar(value=False)
+        self.all_subs = []
+        self.search_results = []
+        self.added_sections = []
         
         # --- Create Menu Bar ---
         self.menubar = tk.Menu(root)
@@ -54,80 +57,173 @@ class SrtEditorApp:
         self.settings_menu.add_checkbutton(label="Auto Clear on Success", variable=self.auto_clear_var)
         self.settings_menu.add_checkbutton(label="Auto Close on Success", variable=self.auto_close_var)
         self.menubar.add_cascade(label="Settings", menu=self.settings_menu)
+        
+        self.edit_menu = tk.Menu(self.menubar, tearoff=0)
+        self.edit_menu.add_command(label="Clear All", command=self.clear_data)
+        self.menubar.add_cascade(label="Edit", menu=self.edit_menu)
+        
         self.root.config(menu=self.menubar)
         
         # Enable drag and drop on the whole window
         self.root.drop_target_register(DND_FILES)
         self.root.dnd_bind('<<Drop>>', self.on_drop)
         
-        # --- File Selection ---
-        tk.Label(root, text="1. Select or Drag & Drop SRT File:", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(15, 5))
+        # --- Make entire window scrollable ---
+        self.canvas = tk.Canvas(root, highlightthickness=0)
+        self.scrollbar = tk.Scrollbar(root, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
         
-        file_frame = tk.Frame(root)
-        file_frame.pack(fill="x", padx=20)
+        self.scrollbar.pack(side="right", fill="y")
+        self.canvas.pack(side="left", fill="both", expand=True)
+        
+        container_frame = tk.Frame(self.canvas)
+        self.canvas_window = self.canvas.create_window((0, 0), window=container_frame, anchor="nw")
+        
+        def on_frame_configure(event):
+            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        container_frame.bind("<Configure>", on_frame_configure)
+        
+        def on_canvas_configure(event):
+            self.canvas.itemconfig(self.canvas_window, width=event.width)
+        self.canvas.bind("<Configure>", on_canvas_configure)
+        
+        def _on_mousewheel(event):
+            # Cross-platform mouse wheel scrolling
+            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        self.root.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        # Create a padding frame inside the container to mimic original padding
+        container = tk.Frame(container_frame)
+        container.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        # --- File Selection ---
+        tk.Label(container, text="1. Select or Drag & Drop SRT File:", font=("Arial", 10, "bold")).pack(anchor="w", pady=(5, 5))
+        
+        file_frame = tk.Frame(container)
+        file_frame.pack(fill="x")
         self.file_path_var = tk.StringVar()
         tk.Entry(file_frame, textvariable=self.file_path_var, state="readonly").pack(side="left", fill="x", expand=True, padx=(0, 10))
         tk.Button(file_frame, text="Browse", command=self.browse_file).pack(side="right")
         
-        # --- First Subtitles List ---
-        tk.Label(root, text="2. Select First Actual Dialogue (to ignore intro text):", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(15, 5))
+        tk.Checkbutton(container, text="Content contain ads or sections?", variable=self.has_sections_var, command=self.toggle_sections, font=("Arial", 10, "bold")).pack(anchor="w", pady=10)
         
-        list_frame = tk.Frame(root)
-        list_frame.pack(fill="x", padx=20)
+        # --- First Subtitles List (Wrapped to toggle easily) ---
+        self.intro_list_frame = tk.Frame(container)
+        self.intro_list_frame.pack(fill="x", pady=(0, 10))
+        tk.Label(self.intro_list_frame, text="2. Select First Actual Dialogue (to ignore intro text):", font=("Arial", 10, "bold")).pack(anchor="w", pady=(5, 5))
         
-        self.sub_listbox = tk.Listbox(list_frame, height=5, selectmode=tk.SINGLE, font=("Consolas", 9))
+        list_frame = tk.Frame(self.intro_list_frame)
+        list_frame.pack(fill="x")
+        
+        self.sub_listbox = tk.Listbox(list_frame, height=5, selectmode=tk.SINGLE, font=("Consolas", 9), width=80)
         self.sub_listbox.pack(side="left", fill="x", expand=True)
         self.sub_listbox.bind('<<ListboxSelect>>', self.on_subtitle_select)
         
-        scrollbar = tk.Scrollbar(list_frame, orient="vertical")
-        scrollbar.config(command=self.sub_listbox.yview)
-        scrollbar.pack(side="right", fill="y")
-        self.sub_listbox.config(yscrollcommand=scrollbar.set)
-        
-        self.sub_data = [] # Will store tuples of (time_str, text)
-        
+        list_scrollbar = tk.Scrollbar(list_frame, orient="vertical")
+        list_scrollbar.config(command=self.sub_listbox.yview)
+        list_scrollbar.pack(side="right", fill="y")
+        self.sub_listbox.config(yscrollcommand=list_scrollbar.set)
+
         # --- Time Adjustment ---
-        tk.Label(root, text="3. Calculate Shift Offset:", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(15, 5))
+        self.basic_time_label = tk.Label(container, text="3. Basic Time Adjustment:", font=("Arial", 10, "bold"))
+        self.basic_time_label.pack(anchor="w", pady=(10, 5))
         
-        time_frame = tk.Frame(root)
-        time_frame.pack(fill="x", padx=20)
+        # Container to hold either basic mode or advanced mode
+        self.modes_container = tk.Frame(container)
+        self.modes_container.pack(fill="x", pady=5)
         
-        tk.Label(time_frame, text="Original Time (Auto-detected)").grid(row=0, column=0, sticky="w")
-        tk.Label(time_frame, text="Target Time").grid(row=0, column=1, sticky="w", padx=20)
+        self.basic_time_frame = tk.Frame(self.modes_container)
+        self.basic_time_frame.pack(fill="x")
         
-        tk.Label(time_frame, text=" ").grid(row=1, column=0, sticky="w") # Spacer
-        tk.Label(time_frame, text="(e.g. 1:50 or 00:01:50,318)").grid(row=1, column=1, sticky="w", padx=20)
+        tk.Label(self.basic_time_frame, text="Original Time (Auto-detected)").grid(row=0, column=0, sticky="w")
+        tk.Label(self.basic_time_frame, text="Target Time").grid(row=0, column=1, sticky="w", padx=20)
+        
+        tk.Label(self.basic_time_frame, text=" ").grid(row=1, column=0, sticky="w") # Spacer
+        tk.Label(self.basic_time_frame, text="(e.g. 1:50 or 00:01:50,318)").grid(row=1, column=1, sticky="w", padx=20)
         
         self.old_time_var = tk.StringVar()
-        self.old_time_entry = tk.Entry(time_frame, textvariable=self.old_time_var, width=22, state="readonly")
+        self.old_time_entry = tk.Entry(self.basic_time_frame, textvariable=self.old_time_var, width=22, state="readonly")
         self.old_time_entry.grid(row=2, column=0, pady=5, sticky="w")
         ToolTip(self.old_time_entry, "Original time detected from the uploaded SRT file's first subtitle timeframe.")
         
         self.new_time_var = tk.StringVar()
-        tk.Entry(time_frame, textvariable=self.new_time_var, width=22).grid(row=2, column=1, pady=5, padx=20, sticky="w")
+        tk.Entry(self.basic_time_frame, textvariable=self.new_time_var, width=22).grid(row=2, column=1, pady=5, padx=20, sticky="w")
         
+        # --- Advanced Sections Frame (Hidden by default) ---
+        self.sections_frame = tk.Frame(self.modes_container)
+        
+        tk.Label(self.sections_frame, text="Search Subtitles:").grid(row=0, column=0, sticky="w", pady=(10, 0))
+        
+        search_sub_frame = tk.Frame(self.sections_frame)
+        search_sub_frame.grid(row=1, column=0, columnspan=2, sticky="we")
+        self.search_var = tk.StringVar()
+        tk.Entry(search_sub_frame, textvariable=self.search_var, width=30).pack(side="left", padx=(0, 5))
+        tk.Button(search_sub_frame, text="Search", command=self.search_subs).pack(side="left")
+        
+        self.search_listbox = tk.Listbox(self.sections_frame, height=5, width=100)
+        self.search_listbox.grid(row=2, column=0, columnspan=2, sticky="we", pady=5)
+        self.search_listbox.bind('<<ListboxSelect>>', self.on_search_select)
+        
+        tk.Label(self.sections_frame, text="Section Start Time (Select from search results above):").grid(row=3, column=0, sticky="w", pady=(5,0))
+        self.sec_start_var = tk.StringVar()
+        tk.Entry(self.sections_frame, textvariable=self.sec_start_var, state="readonly", width=25).grid(row=4, column=0, sticky="w")
+        
+        tk.Label(self.sections_frame, text="Section End (optional, empty=EOF):").grid(row=5, column=0, sticky="w", pady=(5,0))
+        self.sec_end_var = tk.StringVar()
+        tk.Entry(self.sections_frame, textvariable=self.sec_end_var, width=25).grid(row=6, column=0, sticky="w")
+        
+        tk.Label(self.sections_frame, text="New Target Start Time for Section:").grid(row=7, column=0, sticky="w", pady=(5,0))
+        self.sec_target_var = tk.StringVar()
+        tk.Entry(self.sections_frame, textvariable=self.sec_target_var, width=25).grid(row=8, column=0, sticky="w")
+        
+        tk.Button(self.sections_frame, text="Add Section Shift", command=self.add_section, bg="#2196F3", fg="white").grid(row=9, column=0, sticky="we", pady=10)
+        
+        tk.Label(self.sections_frame, text="Added Sections:").grid(row=10, column=0, sticky="w")
+        self.sections_listbox = tk.Listbox(self.sections_frame, height=4, width=80)
+        self.sections_listbox.grid(row=11, column=0, columnspan=2, sticky="we")
+        self.sections_listbox.bind('<<ListboxSelect>>', self.on_added_section_select)
+        tk.Button(self.sections_frame, text="Remove Selected Section", command=self.remove_section).grid(row=12, column=0, sticky="we", pady=(5, 10))
+
         # --- Save Options ---
-        tk.Label(root, text="4. Output Options:", font=("Arial", 10, "bold")).pack(anchor="w", padx=20, pady=(20, 5))
+        self.save_options_label = tk.Label(container, text="4. Output Options:", font=("Arial", 10, "bold"))
+        self.save_options_label.pack(anchor="w", pady=(10, 5))
         self.save_mode_var = tk.StringVar(value="new")
-        tk.Radiobutton(root, text="Save as new file (appends '_adjusted')", variable=self.save_mode_var, value="new").pack(anchor="w", padx=20)
-        tk.Radiobutton(root, text="Save to custom location...", variable=self.save_mode_var, value="custom").pack(anchor="w", padx=20)
-        tk.Radiobutton(root, text="Overwrite original file", variable=self.save_mode_var, value="overwrite", fg="red").pack(anchor="w", padx=20)
+        tk.Radiobutton(container, text="Save as new file (appends '_adjusted')", variable=self.save_mode_var, value="new").pack(anchor="w", padx=10)
+        tk.Radiobutton(container, text="Save to custom location...", variable=self.save_mode_var, value="custom").pack(anchor="w", padx=10)
+        tk.Radiobutton(container, text="Overwrite original file", variable=self.save_mode_var, value="overwrite", fg="red").pack(anchor="w", padx=10)
         
         # --- Action Buttons ---
-        button_frame = tk.Frame(root)
-        button_frame.pack(pady=20)
+        button_frame = tk.Frame(container)
+        button_frame.pack(pady=15)
         
-        tk.Button(button_frame, text="Apply Subtitle Shift", command=self.process_file, bg="#4CAF50", fg="white", font=("Arial", 11, "bold"), width=25).pack(side="left", padx=10)
-        tk.Button(button_frame, text="Clear", command=self.clear_data, bg="#f44336", fg="white", font=("Arial", 11, "bold"), width=10).pack(side="left", padx=10)
+        tk.Button(button_frame, text="Process Subtitles", command=self.process_file, bg="#4CAF50", fg="white", font=("Arial", 11, "bold"), width=25).pack(side="left", padx=10)
+        tk.Button(button_frame, text="Clear Details", command=self.clear_data, bg="#f44336", fg="white", font=("Arial", 11, "bold"), width=10).pack(side="left", padx=10)
         
         self.status_var = tk.StringVar(value="Ready")
-        tk.Label(root, textvariable=self.status_var, fg="#666666").pack(side="bottom", pady=10)
+        tk.Label(container, textvariable=self.status_var, fg="#666666").pack(side="bottom", pady=5)
+
+    def toggle_sections(self):
+        if self.has_sections_var.get():
+            self.intro_list_frame.pack_forget()
+            self.basic_time_label.config(text="2. Advanced Sections Time Adjustment:")
+            self.save_options_label.config(text="3. Output Options:")
+            self.basic_time_frame.pack_forget()
+            self.sections_frame.pack(fill="x")
+            
+            # Automatically load all subtitles into the search box if a file is already loaded
+            if self.all_subs and not self.search_results:
+                self.search_subs()
+        else:
+            self.intro_list_frame.pack(fill="x", pady=(0, 10), before=self.basic_time_label)
+            self.basic_time_label.config(text="3. Basic Time Adjustment:")
+            self.save_options_label.config(text="4. Output Options:")
+            self.sections_frame.pack_forget()
+            self.basic_time_frame.pack(fill="x")
 
     def on_drop(self, event):
         path = event.data
         if path.startswith('{') and path.endswith('}'):
             path = path[1:-1]
-            
         if path.lower().endswith('.srt'):
             self.load_file(path)
         else:
@@ -145,59 +241,118 @@ class SrtEditorApp:
         selection = self.sub_listbox.curselection()
         if selection:
             index = selection[0]
-            if index < len(self.sub_data):
-                time_val = self.sub_data[index][0]
+            if index < len(self.all_subs):
                 self.old_time_entry.config(state="normal")
-                self.old_time_var.set(time_val)
+                self.old_time_var.set(self.all_subs[index]['start'])
                 self.old_time_entry.config(state="readonly")
 
     def load_file(self, path):
         self.file_path_var.set(path)
+        self.all_subs.clear()
         self.sub_listbox.delete(0, tk.END)
-        self.sub_data.clear()
         
         try:
             with open(path, 'r', encoding='utf-8-sig') as f:
                 content = f.read()
                 
-            # Regex to find all subtitles: index, timeframe, and text
-            # We look for: newline(s) or start of string block, number, timeframe, text
             blocks = re.split(r'\n\s*\n', content.replace('\r', '').strip())
-            
-            for block in blocks[:15]: # Display up to 15 subtitles
+            for block in blocks:
                 lines = block.strip().split('\n')
                 if len(lines) >= 2:
-                    match = re.search(r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->", lines[1])
+                    match = re.search(r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,.]\d{3})", lines[1])
                     if not match:
-                        # Sometimes index is missing, try first line
-                        match = re.search(r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->", lines[0])
+                        match = re.search(r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,.]\d{3})", lines[0])
                         text_start = 1 if match else 2
                     else:
                         text_start = 2
                         
                     if match:
                         time_str = match.group(1)
-                        # Join subtitle text lines, strip HTML tags if any, replace newlines with spaces
-                        text_str = " ".join(lines[text_start:]).strip()
-                        text_preview = re.sub(r'<[^>]*>', '', text_str)
-                        if len(text_preview) > 50:
-                            text_preview = text_preview[:47] + "..."
-                            
-                        self.sub_data.append((time_str, text_preview))
-                        self.sub_listbox.insert(tk.END, f"{time_str} | {text_preview}")
+                        # Remove all tags & join
+                        text_preview = " ".join(lines[text_start:]).strip()
+                        text_preview = re.sub(r'<[^>]*>', '', text_preview)
+                        self.all_subs.append({
+                            'start': time_str,
+                            'end': match.group(2),
+                            'text': text_preview
+                        })
+                        
+                        if len(self.all_subs) <= 15: # display first 15 for selection
+                            display_preview = text_preview
+                            if len(display_preview) > 60:
+                                display_preview = display_preview[:57] + "..."
+                            self.sub_listbox.insert(tk.END, f"{time_str} | {display_preview}")
 
-            if self.sub_data:
-                # Select the first item by default
+            if self.all_subs:
                 self.sub_listbox.select_set(0)
                 self.on_subtitle_select(None)
+                if self.has_sections_var.get():
+                    self.search_subs()
             else:
                 self.old_time_entry.config(state="normal")
                 self.old_time_var.set("")
                 self.old_time_entry.config(state="readonly")
+                
         except Exception:
             self.old_time_entry.config(state="normal")
             self.old_time_var.set("")
             self.old_time_entry.config(state="readonly")
+
+    def search_subs(self):
+        q = self.search_var.get().lower()
+        self.search_listbox.delete(0, tk.END)
+        self.search_results.clear()
+        
+        if not self.all_subs:
+            messagebox.showwarning("Warning", "No subtitles loaded or file is empty.")
+            return
+
+        for sub in self.all_subs:
+            if q in sub['text'].lower():
+                self.search_results.append(sub)
+                preview = f"{sub['start']} | {sub['text'][:40]}"
+                self.search_listbox.insert(tk.END, preview)
+
+    def on_search_select(self, event):
+        selection = self.search_listbox.curselection()
+        if selection:
+            index = selection[0]
+            if index < len(self.search_results):
+                self.sec_start_var.set(self.search_results[index]['start'])
+
+    def on_added_section_select(self, event):
+        selection = self.sections_listbox.curselection()
+        if selection:
+            index = selection[0]
+            if index < len(self.added_sections):
+                section = self.added_sections[index]
+                self.sec_start_var.set(section['start'])
+                self.sec_target_var.set(section['target'])
+                self.sec_end_var.set(section.get('end', ''))
+
+    def add_section(self):
+        start = self.sec_start_var.get()
+        target = self.sec_target_var.get()
+        end = self.sec_end_var.get().strip()
+        
+        if not start or not target:
+            messagebox.showerror("Error", "Section Start and Target Time cannot be empty.")
+            return
+            
+        self.added_sections.append({'start': start, 'target': target, 'end': end})
+        self.sections_listbox.insert(tk.END, f"Start: {start} -> Shift to: {target} (End: {end if end else 'EOF'})")
+        
+        # Clear inputs for next
+        self.sec_start_var.set("")
+        self.sec_target_var.set("")
+        self.sec_end_var.set("")
+
+    def remove_section(self):
+        selection = self.sections_listbox.curselection()
+        if selection:
+            index = selection[0]
+            del self.added_sections[index]
+            self.sections_listbox.delete(index)
 
     def parse_time(self, t_str):
         t_str = t_str.strip()
@@ -225,14 +380,23 @@ class SrtEditorApp:
 
     def clear_data(self):
         self.file_path_var.set("")
+        self.all_subs.clear()
+        self.search_results.clear()
+        self.added_sections.clear()
         self.sub_listbox.delete(0, tk.END)
-        self.sub_data.clear()
+        self.search_listbox.delete(0, tk.END)
+        self.sections_listbox.delete(0, tk.END)
+        self.search_var.set("")
         
         self.old_time_entry.config(state="normal")
         self.old_time_var.set("")
         self.old_time_entry.config(state="readonly")
         
         self.new_time_var.set("")
+        self.sec_start_var.set("")
+        self.sec_target_var.set("")
+        self.sec_end_var.set("")
+        
         self.status_var.set("Ready")
 
     def process_file(self):
@@ -241,20 +405,38 @@ class SrtEditorApp:
             messagebox.showerror("Error", "Please select a valid SRT file first.")
             return
 
-        old_time_str = self.old_time_var.get()
-        new_time_str = self.new_time_var.get()
-        
-        if not old_time_str or not new_time_str:
-            messagebox.showerror("Error", "Please provide Target times.")
-            return
+        is_advanced = self.has_sections_var.get()
 
-        try:
-            old_td = self.parse_time(old_time_str)
-            new_td = self.parse_time(new_time_str)
-            offset = new_td - old_td
-        except Exception as e:
-            messagebox.showerror("Error", f"Invalid time format provided.")
-            return
+        parsed_secs = []
+        global_offset = timedelta(0)
+
+        if is_advanced:
+            if not self.added_sections:
+                messagebox.showerror("Error", "No sections added.")
+                return
+            try:
+                for sec in self.added_sections:
+                    s_td = self.parse_time(sec['start'])
+                    t_td = self.parse_time(sec['target'])
+                    e_td = self.parse_time(sec['end']) if sec['end'] else timedelta.max
+                    offset = t_td - s_td
+                    parsed_secs.append({'start': s_td, 'end': e_td, 'offset': offset})
+            except Exception:
+                messagebox.showerror("Error", "Invalid time format in Sections!")
+                return
+        else:
+            old_time_str = self.old_time_var.get()
+            new_time_str = self.new_time_var.get()
+            if not old_time_str or not new_time_str:
+                messagebox.showerror("Error", "Please provide Target times.")
+                return
+            try:
+                old_td = self.parse_time(old_time_str)
+                new_td = self.parse_time(new_time_str)
+                global_offset = new_td - old_td
+            except Exception:
+                messagebox.showerror("Error", "Invalid time format provided.")
+                return
 
         if self.save_mode_var.get() == "new":
             base, ext = os.path.splitext(input_file)
@@ -269,7 +451,7 @@ class SrtEditorApp:
                 filetypes=[("SRT Subtitles", "*.srt"), ("All Files", "*.*")]
             )
             if not output_file:
-                return # User canceled the save dialog
+                return
         else:
             output_file = input_file
 
@@ -281,8 +463,17 @@ class SrtEditorApp:
                 start = self.parse_time(match.group(1))
                 end = self.parse_time(match.group(2))
                 
-                new_start = start + offset
-                new_end = end + offset
+                offset_to_apply = global_offset
+                
+                if is_advanced:
+                    offset_to_apply = timedelta(0) # Default to 0 if not in any section
+                    for sec in parsed_secs:
+                        if sec['start'] <= start <= sec['end']:
+                            offset_to_apply = sec['offset']
+                            break
+                
+                new_start = start + offset_to_apply
+                new_end = end + offset_to_apply
                 
                 if new_start.total_seconds() < 0: new_start = timedelta(0)
                 if new_end.total_seconds() < 0: new_end = timedelta(0)
@@ -295,7 +486,12 @@ class SrtEditorApp:
                 f.write(new_content)
 
             self.status_var.set(f"Success! Saved: {os.path.basename(output_file)}")
-            messagebox.showinfo("Success", f"Subtitles adjusted successfully!\nComputed Offset Applied: {offset.total_seconds():.3f} seconds.")
+            msg = "Subtitles adjusted successfully!"
+            if is_advanced:
+                msg += f"\nProcessed {len(parsed_secs)} sections."
+            else:
+                msg += f"\nComputed Offset: {global_offset.total_seconds():.3f} seconds."
+            messagebox.showinfo("Success", msg)
             
             if self.auto_clear_var.get():
                 self.clear_data()
@@ -312,17 +508,13 @@ class SrtEditorApp:
         entry_fg = "#ffffff" if is_dark else "#000000"
         readonly_bg = "#4d4d4d" if is_dark else "SystemButtonFace"
         
-        # Function to recursively apply colors
         def apply_colors(widget):
             widget_type = widget.winfo_class()
-            
             try:
-                # Basic bg/fg classes
-                if widget_type in ('Frame', 'Tk', 'Toplevel'):
+                if widget_type in ('Frame', 'Tk', 'Toplevel', 'Canvas'):
                     widget.configure(bg=bg_color)
                 elif widget_type in ('Label', 'Radiobutton', 'Checkbutton'):
                     widget.configure(bg=bg_color, fg=fg_color)
-                    # handle specific Radiobutton tweaks if needed
                     if widget_type in ('Radiobutton', 'Checkbutton'):
                         widget.configure(selectcolor=entry_bg)
                 elif widget_type == 'Entry':
@@ -330,15 +522,12 @@ class SrtEditorApp:
                 elif widget_type == 'Listbox':
                     widget.configure(bg=entry_bg, fg=entry_fg, selectbackground="#569CD6" if is_dark else "#0078D7", selectforeground="#ffffff")
                 elif widget_type == 'Button':
-                    # Leave colored buttons (like apply/clear) alone if they have custom backgrounds
-                    if widget.cget("bg") not in ("#4CAF50", "#f44336"):
+                    if widget.cget("bg") not in ("#4CAF50", "#f44336", "#2196F3"):
                         widget.configure(bg=entry_bg, fg=entry_fg)
             except tk.TclError:
                 pass
-                    
             for child in widget.winfo_children():
                 apply_colors(child)
-                
         apply_colors(self.root)
 
 if __name__ == "__main__":
