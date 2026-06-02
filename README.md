@@ -10,6 +10,7 @@ If you have a subtitle file that is out of sync with your video, this tool allow
 - **Drag & Drop Support:** Easily drag and drop your `.srt` files into the app window.
 - **Smart Dialogue Selection:** View a preview of the first few subtitles. Click the actual start of the movie to bypass an intro text or translator credits, ensuring accurate time calculation.
 - **Easy Time shifting:** Just input the target time you want the selected subtitle to appear at, and the tool calculates and applies the offset to all subtitles.
+- **Advanced Sections Mode:** Need to fix subtitles for a video with ads or cut scenes? Toggle the sections option to search for specific subtitles and apply custom time shifts to different segments of the video independently!
 - **Flexible Formats:** Accepts standard SRT timecodes (e.g., `00:02:11,583`) or raw seconds (e.g., `131.583`).
 - **Safe Output Options:** Choose to either overwrite the original file, save a new copy with an `_adjusted` suffix, or specify a custom save location.
 - **Settings & Preferences:** Toggle **Dark Mode** on/off, and configure auto-clear or auto-close behaviors upon successful syncing!
@@ -37,11 +38,23 @@ python srt_editor_gui.py
 ## Usage Instructions
 
 1. **Select File:** Click the **Browse** button or simply **Drag & Drop** your out-of-sync `.srt` file into the app.
-2. **Select First Dialogue:** In the subtitle preview list, click on the entry where the actual movie dialogue begins (this allows you to safely ignore intro text or translation credits).
-3. **Review Original Time:** The **Original Time** box will automatically populate with the timestamp of the subtitle you selected.
-4. **Set Target Time:** Type the exact time where this subtitle *should* actually appear in the **Target Time** box.
-5. **Choose Output:** Select whether you want to save a new file, select a custom save location, or overwrite the existing file.
-6. **Apply/Clear:** Click **Apply Subtitle Shift**. The app will calculate the difference, shift all the timestamps, and save your synced file. Use the **Clear** button to quickly reset the inputs for another file.
+2. **Choose Mode:** If your video has ads or cut sections, check the **"Content contain ads or sections?"** box to reveal advanced settings. Otherwise, proceed with the basic flow.
+
+### Basic Time Adjustment
+3. **Select First Dialogue:** In the subtitle preview list, click on the entry where the actual movie dialogue begins (this allows you to safely ignore intro text or translation credits).
+4. **Review Original Time:** The **Original Time** box will automatically populate with the timestamp of the subtitle you selected.
+5. **Set Target Time:** Type the exact time where this subtitle *should* actually appear in the **Target Time** box.
+
+### Advanced Sections Time Adjustment
+- **Search:** Find the start of the section you want to adjust by typing a word or phrase into the search box and clicking **Search**.
+- **Pick Start:** Click a search result to set the section's original **Start Time**.
+- **Pick End (Optional):** Enter an end time if the shift shouldn't apply until the end of the file.
+- **Set Target:** Enter the time this section should start in the **New Target Start Time for Section** box.
+- **Add Section:** Click **Add Section Shift** to queue this adjustment. You can add as many sections as you need!
+
+### Finalizing
+6. **Choose Output:** Select whether you want to save a new file, select a custom save location, or overwrite the existing file.
+7. **Apply/Clear:** Click **Process Subtitles**. The app will calculate the differences, shift all the timestamps based on your rules, and save your synced file. Use the **Clear Details** button to quickly reset the inputs for another file.
 
 **Note:** You can also check the **Settings** menu at the top to enable **Dark Mode**, **Auto Clear**, or **Auto Close** on success!
 
