@@ -39,7 +39,15 @@ class SrtEditorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("SRT Subtitle Time Editor")
-        self.root.geometry("600x850")
+        
+        # Center the window
+        window_width = 600
+        window_height = 850
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+        center_x = int(screen_width / 2 - window_width / 2)
+        center_y = int(screen_height / 2 - window_height / 2)
+        self.root.geometry(f'{window_width}x{window_height}+{center_x}+{center_y}')
         
         # --- Variables for Settings ---
         self.dark_mode_var = tk.BooleanVar(value=False)
