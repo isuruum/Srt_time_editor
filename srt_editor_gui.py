@@ -41,13 +41,9 @@ class SrtEditorApp:
         self.root.title("SRT Subtitle Time Editor")
         
         # Center the window
-        window_width = 600
-        window_height = 850
-        screen_width = root.winfo_screenwidth()
-        screen_height = root.winfo_screenheight()
-        center_x = int(screen_width / 2 - window_width / 2)
-        center_y = int(screen_height / 2 - window_height / 2)
-        self.root.geometry(f'{window_width}x{window_height}+{center_x}+{center_y}')
+        self.root.minsize(500, 400)
+        self.resize_and_center(650, 550)
+        
         
         # --- Variables for Settings ---
         self.dark_mode_var = tk.BooleanVar(value=False)
@@ -210,6 +206,14 @@ class SrtEditorApp:
         self.status_var = tk.StringVar(value="Ready")
         tk.Label(container, textvariable=self.status_var, fg="#666666").pack(side="bottom", pady=5)
 
+    def resize_and_center(self, width, height):
+        self.root.update_idletasks()
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        center_x = int((screen_width - width) / 2)
+        center_y = int((screen_height - height) / 2)
+        self.root.geometry(f'{width}x{height}+{center_x}+{center_y}')
+
     def toggle_sections(self):
         if self.has_sections_var.get():
             self.intro_list_frame.pack_forget()
@@ -217,6 +221,8 @@ class SrtEditorApp:
             self.save_options_label.config(text="3. Output Options:")
             self.basic_time_frame.pack_forget()
             self.sections_frame.pack(fill="x")
+            
+            self.resize_and_center(650, 850)
             
             # Automatically load all subtitles into the search box if a file is already loaded
             if self.all_subs and not self.search_results:
@@ -227,6 +233,8 @@ class SrtEditorApp:
             self.save_options_label.config(text="4. Output Options:")
             self.sections_frame.pack_forget()
             self.basic_time_frame.pack(fill="x")
+            
+            self.resize_and_center(650, 550)
 
     def on_drop(self, event):
         path = event.data
