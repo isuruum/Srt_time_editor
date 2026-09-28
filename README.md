@@ -1,5 +1,10 @@
 # SRT Subtitle Time Editor
 
+[![Python](https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![GUI](https://img.shields.io/badge/GUI-Tkinter-2C2C2C)](https://docs.python.org/3/library/tkinter.html)
+[![Dependency](https://img.shields.io/badge/Dependency-tkinterdnd2-1769AA)](https://pypi.org/project/tkinterdnd2/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-D22128?logo=apache&logoColor=white)](LICENSE)
+
 A simple, user-friendly Python GUI application for shifting and adjusting the timing of `.srt` subtitle files. 
 
 If you have a subtitle file that is out of sync with your video, this tool allows you to easily shift all timestamps by simply providing the desired starting time of the first subtitle. The app calculates the necessary offset and applies it to the entire file automatically.
