@@ -2,6 +2,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/GUI-Tkinter-2C2C2C)](https://docs.python.org/3/library/tkinter.html)
+[![CI](https://github.com/isuruum/Srt_time_editor/actions/workflows/main.yml/badge.svg)](https://github.com/isuruum/Srt_time_editor/actions/workflows/main.yml)
 [![Dependency](https://img.shields.io/badge/Dependency-tkinterdnd2-1769AA)](https://pypi.org/project/tkinterdnd2/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-D22128?logo=apache&logoColor=white)](LICENSE)
 
